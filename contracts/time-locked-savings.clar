@@ -119,3 +119,81 @@
         ))
     )
 )
+
+;; function to withdraw funds by child when it is matured
+(define-public (child-withdraw (parent principal) (child-name (string-ascii 24)))
+    (let
+        (
+            (current-total-fees-earned (var-get total-fees-earned))
+            (current-child-account (unwrap!
+                                        (map-get? child-account {parent: parent, child-name: child-name})
+                                        (err "child-account-does-not-exist")
+                                    )
+            )
+            (current-child-wallet (get child-wallet current-child-account))
+            (current-child-balance (get balance current-child-account))
+            (current-child-unlock-height (get unlock-height current-child-account))
+            (current-withdrawal-fee (/ (* current-child-balance withdrawal-fee) u100))
+            (current-child-withdrawal (- current-child-balance current-withdrawal-fee))
+        )
+        (asserts! (is-eq tx-sender current-child-wallet) (err "err-unauthorized-withdrawal"))
+        (asserts! (>= block-height current-child-unlock-height) (err "err-account-not-matured"))
+        (unwrap!
+            (as-contract (stx-transfer? current-child-withdrawal tx-sender current-child-wallet))
+            (err "unable-to-send-stx-to-child-wallet")
+        )
+        (var-set total-fees-earned (+ current-total-fees-earned current-withdrawal-fee))
+        (ok (map-delete child-account {parent: parent, child-name: child-name}))
+    )
+)
+
+;; function to withdraw funds by parent or admin incase of emergency
+(define-public (emergency-withdraw (parent principal) (child-name (string-ascii 24)))
+    (let
+        (
+            (current-total-fees-earned (var-get total-fees-earned))
+            (current-child-account (unwrap!
+                                        (map-get? child-account {parent: parent, child-name: child-name})
+                                        (err "child-account-does-not-exist")
+                                    )
+            )
+            (current-child-balance (get balance current-child-account))
+            (current-child-unlock-height (get unlock-height current-child-account))
+            (current-emergency-withdrawal-fee 
+                (if 
+                    (>= block-height current-child-unlock-height) 
+                    (/ (* current-child-balance emergency-withrawal-fee) u100)
+                    (/ (* current-child-balance withdrawal-fee) u100)
+                )
+            
+            )
+            (current-child-emergency-withdrawal (- current-child-balance current-emergency-withdrawal-fee))
+            (current-child-admins (get admins current-child-account))
+        )
+        (asserts!
+            (or (is-eq tx-sender parent) (is-some (index-of current-child-admins tx-sender)))
+            (err "err-unauthorized-withdrawal")
+        )
+        (unwrap!
+            (as-contract (stx-transfer? current-child-emergency-withdrawal tx-sender tx-sender))
+            (err "unable-to-send-stx-to-parent-or-admin")
+        )
+        (var-set total-fees-earned (+ current-total-fees-earned current-emergency-withdrawal-fee))
+        (ok (map-delete child-account {parent: parent, child-name: child-name}))
+    )
+)
+
+(define-public (withdraw-earnings)
+    (let
+        (
+            (current-total-fees-earned (var-get total-fees-earned))
+        )
+        (asserts! (is-eq tx-sender deployer) (err "err-unauthorized"))
+        (asserts! (> current-total-fees-earned u0) (err "err-earnings-empty"))
+        (unwrap! 
+            (as-contract (stx-transfer? current-total-fees-earned tx-sender deployer))
+            (err "err-unable-to-transfer-earnings")    
+        )
+        (ok (var-set total-fees-earned u0))
+    )
+)
