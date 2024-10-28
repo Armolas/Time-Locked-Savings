@@ -61,4 +61,61 @@
     (var-get total-fees-earned)
 )
 
+;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;; Write Functions ;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; Create a new offspring will account
+(define-public (create-account
+                    (child-name (string-ascii 24))
+                    (child-wallet principal)
+                    (lock-period-in-years uint)
+                    (amount uint)
+                )
+    (let
+        (
+            (current-total-fees-earned (var-get total-fees-earned))
+            (current-child-account (map-get? child-account {parent: tx-sender, child-name: child-name})
+            )
+            (total-fee-due (+ amount account-opening-charge))
+        )
+        (asserts! (is-none current-child-account) (err "err-child-account-already-exixts"))
+        (asserts! (>= amount minimum-initial-deposit) (err "err-minimum-initial-deposit-is-5stx"))
+        (asserts! (>= (stx-get-balance tx-sender) total-fee-due) (err "err-insufficient-balance-to-cover-charges"))
+        (unwrap! (stx-transfer? total-fee-due tx-sender contract-address) (err "err-unable-to-send-funds"))
+        (var-set total-fees-earned (+ current-total-fees-earned account-opening-charge))
+        (ok (map-set child-account {parent: tx-sender, child-name: child-name}
+            {
+                child-wallet: child-wallet,
+                child-name: child-name,
+                unlock-height: (+ block-height (* year-in-block lock-period-in-years)),
+                balance: amount,
+                admins: (list )
+            }
+        ))
+    )
+)
+
+;; function to fund child account
+(define-public (fund-child-account (parent principal) (child-name (string-ascii 24)) (amount uint))
+    (let
+        (
+            (current-child-account (unwrap!
+                                        (map-get? child-account {parent: parent, child-name: child-name})
+                                        (err "child-account-does-not-exist")
+                                    )
+            )
+            (current-child-balance (get balance current-child-account))
+        )
+        (unwrap!
+            (stx-transfer? amount tx-sender contract-address)
+            (err "err-unable-to-fund-child-account")
+        )
+        (ok (map-set child-account {parent: tx-sender, child-name: child-name}
+            (merge
+                current-child-account
+                {balance: (+ amount current-child-balance)}
+            )
+        ))
+    )
+)
