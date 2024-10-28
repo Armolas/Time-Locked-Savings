@@ -197,3 +197,64 @@
         (ok (var-set total-fees-earned u0))
     )
 )
+
+;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;; Admin Functions ;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define-public (add-child-admin (parent principal) (child-name (string-ascii 24)) (admin principal))
+    (let
+        (
+            (current-child-account (unwrap!
+                                        (map-get? child-account {parent: parent, child-name: child-name})
+                                        (err "child-account-does-not-exist")
+                                    )
+            )
+            (current-child-admins (get admins current-child-account))
+        )
+        (asserts! (is-eq tx-sender parent) (err "err-unauthorized"))
+        (asserts! (is-none (index-of current-child-admins admin)) (err "err-admin-already-exist"))
+        (ok (map-set child-account {parent: tx-sender, child-name: child-name}
+            (merge
+                current-child-account
+                {admins: (unwrap!
+                            (as-max-len? (append current-child-admins admin) u5)
+                            (err "err-unable-to-add-admin")
+                        )
+                }
+            )
+        ))
+    )
+)
+
+(define-public (remove-child-admin (parent principal) (child-name (string-ascii 24)) (admin principal))
+    (let
+        (
+            (current-child-account (unwrap!
+                                        (map-get? child-account {parent: parent, child-name: child-name})
+                                        (err "child-account-does-not-exist")
+                                    )
+            )
+            (current-child-admins (get admins current-child-account))
+        )
+        (asserts! (is-eq tx-sender parent) (err "err-unauthorized"))
+        (asserts! (is-some (index-of current-child-admins admin)) (err "err-admin-does-not-exist"))
+        (ok (map-set child-account {parent: parent, child-name: child-name}
+                (merge
+                    current-child-account
+                    {admins: (get new-admin-list (fold remove-admin current-child-admins {compare-to: admin, new-admin-list: (list)}))
+                    }
+                )
+            )
+        )
+    )
+)
+
+(define-private (remove-admin (list-admin principal) (admin-tracker {compare-to: principal, new-admin-list: (list 5 principal)}))
+    (merge admin-tracker {new-admin-list:
+        (if (is-eq list-admin (get compare-to admin-tracker))
+            (get new-admin-list admin-tracker)
+            (unwrap-panic (as-max-len? (append (get new-admin-list admin-tracker) list-admin) u5))
+        )}
+    )
+)
