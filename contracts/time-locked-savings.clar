@@ -90,7 +90,7 @@
                 child-name: child-name,
                 unlock-height: (+ block-height (* year-in-block lock-period-in-years)),
                 balance: amount,
-                admins: (list )
+                admins: (list tx-sender)
             }
         ))
     )
@@ -144,6 +144,31 @@
         )
         (var-set total-fees-earned (+ current-total-fees-earned current-withdrawal-fee))
         (ok (map-delete child-account {parent: parent, child-name: child-name}))
+    )
+)
+
+;; function to replace child wallet by parent
+(define-public (replace-child-wallet (parent principal) (child-name (string-ascii 24)) (new-wallet principal))
+    (let 
+        (
+            (current-child-account (unwrap!
+                                        (map-get? child-account {parent: parent, child-name: child-name})
+                                        (err "child-account-does-not-exist")
+                                    )
+            )
+            (current-child-admins (get admins current-child-account))
+            (current-child-wallet (get child-wallet current-child-account))
+        )
+        (asserts!
+            (is-some (index-of current-child-admins tx-sender))
+            (err "err-unauthorized")
+        )
+        (ok (map-set child-account {parent: tx-sender, child-name: child-name}
+            (merge
+                current-child-account
+                {child-wallet: new-wallet}
+            )
+        ))
     )
 )
 
